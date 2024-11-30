@@ -1,20 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import API from '../services/api';
+import React from 'react';
 import UpdateTask from './UpdateTask';
 
-const TaskList = () => {
-  const [tasks, setTasks] = useState([]);
-
-  const fetchTasks = () => {
-    API.get('/tasks')
-      .then((response) => setTasks(response.data))
-      .catch((error) => console.error('Error fetching tasks:', error));
-  };
-
-  useEffect(() => {
-    fetchTasks();
-  }, []);
-
+const TaskList = ({ tasks, onTaskDeleted, onTaskUpdated }) => {
   return (
     <div>
       <h2>Task List</h2>
@@ -23,8 +10,8 @@ const TaskList = () => {
           <li key={task.id}>
             <UpdateTask
               task={task}
-              onTaskUpdated={fetchTasks}
-              onTaskDeleted={fetchTasks}
+              onTaskDeleted={onTaskDeleted}
+              onTaskUpdated={onTaskUpdated}
             />
           </li>
         ))}

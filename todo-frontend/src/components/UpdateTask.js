@@ -8,7 +8,7 @@ const UpdateTask = ({ task, onTaskUpdated, onTaskDeleted }) => {
   const handleUpdate = () => {
     API.put(`/tasks/${task.id}`, { name: taskName })
       .then(() => {
-        onTaskUpdated();
+        onTaskUpdated({ id: task.id, name: taskName });
         setIsEditing(false);
       })
       .catch((error) => console.error('Error updating task:', error));
@@ -16,7 +16,7 @@ const UpdateTask = ({ task, onTaskUpdated, onTaskDeleted }) => {
 
   const handleDelete = () => {
     API.delete(`/tasks/${task.id}`)
-      .then(() => onTaskDeleted())
+      .then(() => onTaskDeleted(task.id))
       .catch((error) => console.error('Error deleting task:', error));
   };
 

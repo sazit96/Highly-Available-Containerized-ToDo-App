@@ -7,9 +7,10 @@ const AddTask = ({ onTaskAdded }) => {
   const handleSubmit = (e) => {
     e.preventDefault();
     API.post('/tasks', { name: taskName })
-      .then(() => {
+      .then((response) => {
+        const newTask = { id: response.data.id, name: taskName };
+        onTaskAdded(newTask);
         setTaskName('');
-        onTaskAdded(); // Notify parent to refresh tasks
       })
       .catch((error) => console.error('Error adding task:', error));
   };
