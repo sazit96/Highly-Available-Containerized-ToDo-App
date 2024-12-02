@@ -1,95 +1,170 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const sqlite3 = require('sqlite3').verbose();
+const fs = require('fs-extra');
+const path = require('path');
 
 const app = express();
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 // Middleware
 app.use(bodyParser.json());
 app.use(cors());
 
-// Database setup
-const db = new sqlite3.Database('./tasks.db', (err) => {
-  if (err) {
-    console.error('Error opening database', err.message);
-  } else {
-    console.log('Connected to the SQLite database.');
-    db.run(
-      `CREATE TABLE IF NOT EXISTS tasks (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL
-            )`
-    );
-  }
-});
+// Determine database path based on environment
+const DB_PATH =
+  process.env.NODE_ENV === 'production'
+    ? '/app/tasks.json'
+    : path.resolve(__dirname, 'tasks.json');
 
-app.get('/', (req, res) => {
-  res.send('Server is running');
-});
+// Ensure database file exists
+const initDatabase = async () => {
+  try {
+    if (!(await fs.exists(DB_PATH))) {
+      await fs.writeJson(DB_PATH, { tasks: [] });
+      console.log(`Created database file at ${DB_PATH}`);
+    }
+  } catch (error) {
+    console.error('Database initialization error:', error);
+  }
+};
+
+// Read tasks
+const readTasks = async () => {
+  try {
+    const data = await fs.readJson(DB_PATH);
+    return data.tasks;
+  } catch (error) {
+    console.error('Error reading tasks:', error);
+    return [];
+  }
+};
+
+// Write tasks
+const writeTasks = async (tasks) => {
+  try {
+    await fs.writeJson(DB_PATH, { tasks });
+  } catch (error) {
+    console.error('Error writing tasks:', error);
+  }
+};
 
 // Routes
+app.get('/', (req, res) => {
+  res.send('Todo Backend is running');
+});
 
 // GET all tasks
-app.get('/tasks', (req, res) => {
-  db.all('SELECT * FROM tasks', [], (err, rows) => {
-    if (err) {
-      res.status(500).send({ error: err.message });
-    } else {
-      res.json(rows);
-    }
-  });
-});
-
-// POST: Add a new task
-app.post('/tasks', (req, res) => {
-  const { name } = req.body;
-  if (!name) {
-    return res.status(400).send({ error: 'Task name is required' });
+app.get('/tasks', async (req, res) => {
+  try {
+    const tasks = await readTasks();
+    res.json(tasks);
+  } catch (error) {
+    res.status(500).json({ error: 'Could not fetch tasks' });
   }
-  db.run('INSERT INTO tasks (name) VALUES (?)', [name], function (err) {
-    if (err) {
-      res.status(500).send({ error: err.message });
-    } else {
-      res.status(201).send({ id: this.lastID, name }); // Return the new task with the id
-    }
-  });
 });
 
-// PUT: Update a task
-app.put('/tasks/:id', (req, res) => {
-  const { id } = req.params;
-  const { name } = req.body;
-  if (!name) {
-    return res.status(400).send({ error: 'Task name is required' });
+// POST new task
+app.post('/tasks', async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'Task name is required' });
+    }
+
+    const tasks = await readTasks();
+    const newTask = {
+      id: tasks.length > 0 ? Math.max(...tasks.map((t) => t.id)) + 1 : 1,
+      name: name.trim(),
+    };
+
+    tasks.push(newTask);
+    await writeTasks(tasks);
+
+    res.status(201).json(newTask);
+  } catch (error) {
+    res.status(500).json({ error: 'Could not add task' });
   }
-  db.run('UPDATE tasks SET name = ? WHERE id = ?', [name, id], function (err) {
-    if (err) {
-      res.status(500).send({ error: err.message });
-    } else {
-      res.send({ message: 'Task updated successfully' });
-    }
-  });
 });
 
-// DELETE: Remove a task
-app.delete('/tasks/:id', (req, res) => {
-  const { id } = req.params;
-  db.run('DELETE FROM tasks WHERE id = ?', [id], function (err) {
-    if (err) {
-      res.status(500).send({ error: err.message });
-    } else {
-      res.send({ message: 'Task deleted successfully' });
+// PUT update task
+app.put('/tasks/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (!name || name.trim() === '') {
+      return res.status(400).json({ error: 'Task name is required' });
     }
-  });
+
+    let tasks = await readTasks();
+    const taskIndex = tasks.findIndex((t) => t.id === parseInt(id));
+
+    if (taskIndex === -1) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    tasks[taskIndex] = { ...tasks[taskIndex], name: name.trim() };
+    await writeTasks(tasks);
+
+    res.json(tasks[taskIndex]);
+  } catch (error) {
+    res.status(500).json({ error: 'Could not update task' });
+  }
 });
 
-/* Start server
-app.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+// DELETE task
+app.delete('/tasks/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    let tasks = await readTasks();
+
+    const initialLength = tasks.length;
+    tasks = tasks.filter((t) => t.id !== parseInt(id));
+
+    if (tasks.length === initialLength) {
+      return res.status(404).json({ error: 'Task not found' });
+    }
+
+    await writeTasks(tasks);
+    res.json({ message: 'Task deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ error: 'Could not delete task' });
+  }
 });
+
+// Initialize and start server
+const startServer = async () => {
+  try {
+    // Initialize database
+    await initDatabase();
+
+    // Start server
+    app.listen(PORT, () => {
+      console.log(`Server running on http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
+
+// Run the server
+startServer();
+
+/*
+const startServer = async () => {
+  try {
+    // Initialize database
+    await initDatabase();
+
+    // Start server
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log(`Server running on http://0.0.0.0:${PORT}`);
+    });
+  } catch (error) {
+    console.error('Failed to start server:', error);
+    process.exit(1);
+  }
+};
 */
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Server is running on http://0.0.0.0:${PORT}`);
-});
